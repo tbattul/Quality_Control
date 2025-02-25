@@ -5,6 +5,7 @@ from MySQL import MySQL
 from collections import defaultdict
 from TaggerClassifier import TaggerClassifier
 from TagClassifier import TagClassifier
+from IntervalLogsHandler import IntervalLogsHandler
 from PatternDetection_refactored import PatternDetection
 import numpy as np
 import pandas as pd
@@ -18,10 +19,11 @@ class Application:
     """
     def __init__(self) -> None:
         self._connector = MySQL()                       # MySQL connector to call methods of MySQL class
-        self.assignment_to_users = defaultdict(dict)    # dictionary to store the result of interval logs query
+        #self.assignment_to_users = defaultdict(dict)    # dictionary to store the result of interval logs query
         self.tagger_classifier = TaggerClassifier()     # object of TaggerClassifier class
+        self.interval_logs_handler = IntervalLogsHandler(self.tagger_classifier)  # IntervalLogsHandler instance
         self.tag_classifier = TagClassifier()           # object of TagClassifier class
-        self.interval_logs_result = defaultdict(dict)   # result of interval logs
+       # self.interval_logs_result = defaultdict(dict)   # result of interval logs
         self.krippendorff_result = defaultdict(dict)    # result of krippendorff alpha for a user
         self.agree_disagree_tags = defaultdict(dict)    # result of agreement/disagreement for each tag
         self.pattern_detection_result = defaultdict(dict) # result of interval logs
@@ -30,41 +32,6 @@ class Application:
         self.pattern_detection = PatternDetection()
         self.assignment_to_teams = {}                  # dictionary that stores the result of getUserTeams function
         
-    def __getIntervalLogs(self, tags, log_time=None) -> None:
-        """
-        Calculates Interval logs
-
-        Args:
-            tags (list): List of tags
-        """
-        # Populating the assignment_to_users hashmap based on the assignment_id and user_id
-        for tag in tags:
-            if tag.assignment_id in self.assignment_to_users:
-                if tag.user_id in self.assignment_to_users[tag.assignment_id]:
-                    self.assignment_to_users[tag.assignment_id][tag.user_id].append(tag)
-                else:
-                    self.assignment_to_users[tag.assignment_id][tag.user_id] = [tag]
-            else:
-                self.assignment_to_users[tag.assignment_id] = {tag.user_id: [tag]}
-                
-        # Calculating interval logs per assignment per user
-        for assignment_id, users in self.assignment_to_users.items():
-            for user,tags in users.items():
-                self.interval_logs_result[assignment_id][user] = self.tagger_classifier.buildIntervalLogs(self.assignment_to_users[assignment_id][user])
-                
-        with open("data/Interval_logs.csv", "w") as f:
-            f.write("Assignment_id,User_id,IL_result,Time,Number_of_Tags\n")
-            for assignment_id, users in self.interval_logs_result.items():
-                for user_id, results in users.items():
-                    log_time_value = results[0]
-                    number_of_tags = results[1]
-                    if log_time is None or log_time_value >= log_time:
-                        # Format IL_result and Time to 3 decimal places
-                        il_result_formatted = "{:.3f}".format(log_time_value)
-                        time_formatted = "{:.3f}".format(pow(2, log_time_value))
-                        f.write(f"{assignment_id},{user_id},{il_result_formatted},{time_formatted},{number_of_tags}\n")
-        print("Interval logs written to data/Interval_logs.csv")
-        f.close()
     
     def __getUserHistory(self, user_history) -> None:
         """
@@ -223,25 +190,11 @@ class Application:
         
     def assignTaggerReliability(self, log_time=None, alpha=None, lmin=5, lmax=30, minrep=15):
         """
-        Function used to compute Interval Logs, Krippendorff Alpha and Pattern detection
+        Computes interval logs, Krippendorff alpha, and pattern detection.
         """
         # Interval logs
-        self.tags = self._connector.getAnswerTags()
-        self.__getIntervalLogs(self.tags, log_time)
-    
-        # Krippendorff alpha
-        self.assignment_to_teams = self._connector.getUserTeams()
-        self.__getKrippendorffAlpha(alpha)
-
-        # # Pattern Detection
-        self.__getPatternResults(self.tags, lmin, lmax, minrep)
-
-        # User data
-        self.user_history = self._connector.getUserHistory()
-        self.__getUserHistory(self.user_history)
-
-        #Number of students who tagged each question
-        self.__getStudentsWhoTagged()
+        tags = self._connector.getAnswerTags()
+        self.interval_logs_handler.calculate_interval_logs(tags, log_time)
         
     def assignTagReliability(self):
         """
